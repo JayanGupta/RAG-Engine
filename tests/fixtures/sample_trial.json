@@ -1,0 +1,40 @@
+{
+  "protocolSection": {
+    "identificationModule": {
+      "nctId": "NCT02142738",
+      "briefTitle": "Study of Pembrolizumab versus Platinum-Based Chemotherapy in PD-L1 Positive NSCLC",
+      "officialTitle": "KEYNOTE-024"
+    },
+    "statusModule": {
+      "startDateStruct": {"date": "2014-09"}
+    },
+    "descriptionModule": {
+      "briefSummary": "Randomized trial of pembrolizumab 200 mg versus platinum chemotherapy in metastatic NSCLC."
+    },
+    "designModule": {
+      "phases": ["PHASE3"],
+      "enrollmentInfo": {"count": 305}
+    },
+    "armsInterventionsModule": {
+      "armGroups": [
+        {"label": "Pembrolizumab", "type": "EXPERIMENTAL", "description": "200 mg IV q3w"},
+        {"label": "Chemotherapy", "type": "ACTIVE_COMPARATOR", "description": "platinum doublet"}
+      ],
+      "interventions": [
+        {"name": "Pembrolizumab", "type": "BIOLOGICAL", "description": "200 mg IV every 3 weeks"}
+      ]
+    },
+    "outcomesModule": {
+      "primaryOutcomes": [{"measure": "Progression-free survival"}]
+    },
+    "adverseEventsModule": {
+      "seriousEvents": [
+        {"term": "Pneumonitis"},
+        {"term": "Colitis"}
+      ]
+    },
+    "referencesModule": {
+      "references": [{"pmid": "27718847"}]
+    }
+  }
+}

@@ -1,0 +1,13 @@
+[
+  {
+    "table_id": "27718847-t1",
+    "doc_id": "27718847",
+    "caption": "Primary endpoint PFS in KEYNOTE-024",
+    "headers": ["Arm", "Median PFS", "HR", "p value"],
+    "rows": [
+      ["Pembrolizumab", "10.3 months", "0.50", "p<0.001"],
+      ["Chemotherapy", "6.0 months", "—", "—"]
+    ],
+    "html": "<table></table>"
+  }
+]
