@@ -1,16 +1,16 @@
 from config.settings import Settings, get_settings
 from config.prompts import (
-    CLINICAL_DISCLAIMER,
-    INSUFFICIENT_EVIDENCE_TEMPLATE,
+    INSUFFICIENT_EVIDENCE,
     SYSTEM_PROMPT,
+    REFUSAL_MESSAGE,
     SYNTHETIC_QA_PROMPT,
 )
 
 __all__ = [
     "Settings",
     "get_settings",
-    "CLINICAL_DISCLAIMER",
-    "INSUFFICIENT_EVIDENCE_TEMPLATE",
+    "INSUFFICIENT_EVIDENCE",
     "SYSTEM_PROMPT",
+    "REFUSAL_MESSAGE",
     "SYNTHETIC_QA_PROMPT",
 ]

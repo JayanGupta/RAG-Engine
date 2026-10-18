@@ -1,143 +1,72 @@
-"""Typed env knobs. Names are USER_LLM_* / NCBI_* only — never platform keys.
+"""Configuration settings for the RAG engine.
 
-get_settings() is cached. Paths under data/ are created on first load.
+Loads environment variables from .env or uses sensible defaults.
+All settings can be customized via environment variables.
 """
 
-from functools import lru_cache
+import os
 from pathlib import Path
-
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(ROOT / ".env")
 
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=str(ROOT / ".env"),
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+class Settings:
+    """Central configuration for paths, models, and retrieval hyperparameters."""
 
-    user_llm_api_key: str = Field(default="")
-    user_llm_base_url: str = Field(default="https://api.example.com/v1")
-    user_llm_model: str = Field(default="your-model-name")
+    def __init__(self):
+        # LLM configuration
+        self.user_llm_api_key = os.getenv("USER_LLM_API_KEY", "").strip()
+        self.user_llm_base_url = os.getenv("USER_LLM_BASE_URL", "")
+        self.user_llm_model = os.getenv("USER_LLM_MODEL", "gpt-4o-mini")
+        self.llm_temperature = float(os.getenv("LLM_TEMPERATURE", "0.1"))
+        self.llm_max_tokens = int(os.getenv("LLM_MAX_TOKENS", "1000"))
 
-    ncbi_email: str = Field(default="")
-    ncbi_api_key: str = Field(default="")
+        # Embeddings & Vector Store
+        # HashEmbeddings = 100% offline, zero-dependency token hashing for demo/testing
+        self.use_hash_embeddings = os.getenv("USE_HASH_EMBEDDINGS", "true").lower() == "true"
+        self.embedding_model = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+        self.collection_name = "rag_engine_docs"
 
-    user_cohere_api_key: str = Field(default="")
-    user_langsmith_api_key: str = Field(default="")
-    user_langsmith_project: str = Field(default="biomed-rag-engine")
+        # Chunking parameters
+        self.chunk_size = int(os.getenv("CHUNK_SIZE", "400"))
+        self.chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "50"))
+        self.parent_chunk_size = int(os.getenv("PARENT_CHUNK_SIZE", "1500"))
 
-    vector_backend: str = Field(default="qdrant")
-    qdrant_path: str = Field(default="data/qdrant")
-    chroma_path: str = Field(default="data/chroma")
-    embedding_model: str = Field(default="BAAI/bge-large-en-v1.5")
-    rerank_model: str = Field(default="BAAI/bge-reranker-base")
-    use_medcpt: bool = Field(default=False)
-    use_hash_embeddings: bool = Field(default=True)
+        # Retrieval hyperparameters
+        self.dense_top_k = int(os.getenv("DENSE_TOP_K", "10"))
+        self.bm25_top_k = int(os.getenv("BM25_TOP_K", "10"))
+        self.final_top_k = int(os.getenv("FINAL_TOP_K", "4"))
+        self.dense_weight = float(os.getenv("DENSE_WEIGHT", "0.6"))
+        self.bm25_weight = float(os.getenv("BM25_WEIGHT", "0.4"))
 
-    collection_name: str = Field(default="biomed_rag_oncology")
-    pubmed_fetch_limit: int = Field(default=80)
-    ctgov_fetch_limit: int = Field(default=40)
-    dense_k: int = Field(default=20)
-    bm25_k: int = Field(default=20)
-    rerank_k: int = Field(default=5)
-    ensemble_dense_weight: float = Field(default=0.6)
-    ensemble_bm25_weight: float = Field(default=0.4)
-    child_chunk_tokens: int = Field(default=400)
-    parent_chunk_tokens: int = Field(default=2000)
-    llm_temperature: float = Field(default=0.1)
-    llm_max_tokens: int = Field(default=1200)
+        # Storage paths
+        self.data_dir = ROOT / "data"
+        self.documents_file = self.data_dir / "documents.jsonl"
+        self.chroma_dir = self.data_dir / "chroma"
+        self.bm25_file = self.data_dir / "bm25_index.pkl"
+        self.parent_store_file = self.data_dir / "parents.jsonl"
 
-    therapeutic_area: str = Field(default="oncology_immunotherapy")
-    pubmed_query: str = Field(
-        default=(
-            '(immunotherapy OR "immune checkpoint" OR "PD-1" OR "PD-L1" OR '
-            "pembrolizumab OR nivolumab OR atezolizumab) AND "
-            "(cancer OR oncology OR NSCLC OR melanoma OR carcinoma) AND "
-            "(clinical trial[pt] OR randomized)"
-        )
-    )
-    pubmed_mindate: str = Field(default="2016/01/01")
+        # Ensure base directories exist
+        self.ensure_dirs()
 
-    data_dir: Path = Field(default=ROOT / "data")
+    def ensure_dirs(self):
+        """Create necessary data storage directories."""
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.chroma_dir.mkdir(parents=True, exist_ok=True)
 
-    @property
-    def raw_dir(self) -> Path:
-        return self.data_dir / "raw"
-
-    @property
-    def processed_dir(self) -> Path:
-        return self.data_dir / "processed"
-
-    @property
-    def synthetic_dir(self) -> Path:
-        return self.data_dir / "synthetic"
-
-    @property
-    def eval_dir(self) -> Path:
-        return self.data_dir / "eval"
-
-    @property
-    def documents_path(self) -> Path:
-        return self.processed_dir / "documents.jsonl"
-
-    @property
-    def tables_dir(self) -> Path:
-        return self.processed_dir / "tables"
-
-    @property
-    def bm25_path(self) -> Path:
-        return self.processed_dir / "bm25.pkl"
-
-    @property
-    def parent_store_path(self) -> Path:
-        return self.processed_dir / "parents.jsonl"
-
-    @property
-    def qa_path(self) -> Path:
-        return self.synthetic_dir / "qa.jsonl"
-
-    @property
-    def ragas_report_path(self) -> Path:
-        return self.eval_dir / "ragas_report.json"
-
-    @property
-    def qdrant_abs_path(self) -> Path:
-        path = Path(self.qdrant_path)
-        return path if path.is_absolute() else ROOT / path
-
-    @property
-    def chroma_abs_path(self) -> Path:
-        path = Path(self.chroma_path)
-        return path if path.is_absolute() else ROOT / path
-
-    def ensure_dirs(self) -> None:
-        for path in (
-            self.raw_dir / "pubmed",
-            self.raw_dir / "pmc",
-            self.raw_dir / "clinicaltrials",
-            self.processed_dir,
-            self.tables_dir,
-            self.synthetic_dir,
-            self.eval_dir,
-            self.qdrant_abs_path,
-            self.chroma_abs_path,
-        ):
-            path.mkdir(parents=True, exist_ok=True)
-
-    def llm_configured(self) -> bool:
-        key = self.user_llm_api_key.strip()
-        return bool(key) and key != "your-api-key-here"
-
-    def ncbi_rate_limit(self) -> float:
-        return 0.11 if self.ncbi_api_key else 0.34
+    def has_llm_key(self):
+        """Check if a valid LLM API key has been provided."""
+        return bool(self.user_llm_api_key) and self.user_llm_api_key != "your-api-key-here"
 
 
-@lru_cache(maxsize=1)
-def get_settings() -> Settings:
-    settings = Settings()
-    settings.ensure_dirs()
-    return settings
+_cached_settings = None
+
+
+def get_settings():
+    """Returns a singleton Settings instance."""
+    global _cached_settings
+    if _cached_settings is None:
+        _cached_settings = Settings()
+    return _cached_settings

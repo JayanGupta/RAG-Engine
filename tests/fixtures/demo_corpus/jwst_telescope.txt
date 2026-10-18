@@ -1,0 +1,9 @@
+Title: James Webb Space Telescope Overview
+
+The James Webb Space Telescope (JWST) is an infrared space observatory launched on December 25, 2021, aboard an Ariane 5 rocket from Kourou, French Guiana. Developed by NASA in partnership with the European Space Agency (ESA) and the Canadian Space Agency (CSA), it serves as the premier deep-space observatory succeeding the Hubble Space Telescope.
+
+Unlike Hubble, which observes primarily in near-ultraviolet, visible, and near-infrared light, Webb is specifically optimized for infrared astronomy. This allows it to penetrate dense cosmic dust clouds and detect red-shifted light emitted by the earliest galaxies formed after the Big Bang over 13.5 billion years ago.
+
+The telescope features a 6.5-meter diameter primary mirror composed of 18 hexagonal segments made from gold-plated beryllium. To maintain sensitivity to faint infrared signals, its instruments must operate at cryogenic temperatures below 50 Kelvin (-223 degrees Celsius). It is stationed at the Sun-Earth Second Lagrange Point (L2), approximately 1.5 million kilometers from Earth, protected by a five-layer tennis-court-sized polyimide sunshield.
+
+Its four scientific instruments are NIRCam (Near-Infrared Camera), NIRSpec (Near-Infrared Spectrograph), MIRI (Mid-Infrared Instrument), and FGS/NIRISS (Fine Guidance Sensor and Near-Infrared Imager and Slitless Spectrograph). JWST has provided unprecedented data on atmospheric compositions of exoplanets, stellar nurseries, and early galaxy morphology.

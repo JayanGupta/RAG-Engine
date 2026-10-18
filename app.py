@@ -1,13 +1,13 @@
-"""Streamlit UI. Pages call into src/biomed_rag; they do not implement RAG.
+"""RAG-Engine: Interactive Streamlit Showcase.
 
-Ask -> generation.chain.run_rag
-Ingest -> ingestion.pipeline.run_ingestion + store.indexer
-Evaluation -> eval.ragas_bench.run_benchmark
+Demonstrates how a Retrieval-Augmented Generation (RAG) system works step-by-step:
+1. Ingestion & Document Chunking
+2. Dense Vector Embeddings & Similarity Search
+3. Sparse BM25 Keyword Search
+4. Hybrid Retrieval with Reciprocal Rank Fusion (RRF)
+5. Context-Augmented Prompting & Answer Generation
 """
 
-from __future__ import annotations
-
-import json
 import sys
 from pathlib import Path
 
@@ -15,240 +15,212 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
-import pandas as pd
 import streamlit as st
-
-from config.prompts import CLINICAL_DISCLAIMER
 from config.settings import get_settings
-from biomed_rag.eval.ragas_bench import run_benchmark
-from biomed_rag.eval.synthetic_qa import generate_synthetic_qa, load_qa
-from biomed_rag.generation.chain import run_rag
-from biomed_rag.ingestion.parsers import read_jsonl
-from biomed_rag.ingestion.pipeline import run_ingestion, seed_demo_tables
-from biomed_rag.store.factory import build_vector_store
-from biomed_rag.store.indexer import index_documents
+from rag_engine.pipeline import RAGPipeline
 
-st.set_page_config(page_title="BioMed-RAG Engine", layout="wide")
+st.set_page_config(
+    page_title="RAG Engine Showcase",
+    page_icon="🧠",
+    layout="wide",
+)
 
 
 @st.cache_resource
-def load_settings():
-    return get_settings()
-
-
-def load_or_build_index(settings):
-    documents = read_jsonl(settings.documents_path)
-    if not documents:
-        documents = run_ingestion(settings, live=False, index=False)
-        seed_demo_tables(settings)
-    store_bundle = build_vector_store(settings)
-    if len(store_bundle.bm25.chunks) == 0:
-        index_documents(documents, settings)
-        store_bundle = build_vector_store(settings)
-    return documents, store_bundle
-
-
-def pubmed_url(pmid: str | None) -> str | None:
-    if not pmid:
-        return None
-    return f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
-
-
-def render_sidebar(settings):
-    st.sidebar.title("BioMed-RAG Engine")
-    st.sidebar.caption("Oncology / immunotherapy literature synthesis")
-    page = st.sidebar.radio(
-        "Navigate",
-        ["Ask", "Sources", "Extracted tables", "Chunk inspector", "Evaluation", "Ingest"],
-    )
-    st.sidebar.markdown("---")
-    st.sidebar.write(f"Vector backend: `{settings.vector_backend}`")
-    st.sidebar.write(f"LLM configured: {'yes' if settings.llm_configured() else 'no (extractive fallback)'}")
-    st.sidebar.info(CLINICAL_DISCLAIMER)
-    return page
-
-
-def page_ask(settings, store_bundle):
-    st.header("Ask the literature")
-    st.write(
-        "Questions must be about published oncology or immunotherapy trials. "
-        "Diagnostic and personal treatment queries are blocked."
-    )
-    query = st.text_area(
-        "Clinical literature question",
-        placeholder="What PFS hazard ratio was reported for pembrolizumab in KEYNOTE-024?",
-        height=100,
-    )
-    if st.button("Run RAG", type="primary") and query.strip():
-        result = run_rag(query.strip(), settings=settings, bundle=store_bundle)
-        st.session_state["last_result"] = result.model_dump()
-    payload = st.session_state.get("last_result")
-    if not payload:
-        st.info("Run a query to see a grounded synthesis.")
-        return
-    if payload.get("refused"):
-        st.warning(payload["answer"])
-        st.caption(f"Guardrail: {payload.get('refusal_reason')}")
-        return
-    st.markdown(payload["answer"])
-    st.caption(f"Latency {payload.get('latency_ms', 0):.0f} ms")
-    cites = payload.get("citations") or []
-    if cites:
-        st.subheader("PMID citations")
-        for pmid in cites:
-            url = pubmed_url(pmid)
-            st.markdown(f"- [{pmid}]({url})")
-
-
-def page_sources():
-    payload = st.session_state.get("last_result")
-    if not payload:
-        st.info("Run a query on Ask first.")
-        return
-    st.header("Sources")
-    for i, hit in enumerate(payload.get("hits") or [], start=1):
-        meta = hit.get("metadata") or {}
-        pmid = meta.get("pmid")
-        url = pubmed_url(pmid)
-        title = meta.get("title") or "Untitled"
-        st.subheader(f"{i}. {title}")
-        cols = st.columns(4)
-        cols[0].write(f"PMID: {pmid or 'n/a'}")
-        cols[1].write(f"DOI: {meta.get('doi') or 'n/a'}")
-        cols[2].write(f"Year: {meta.get('year') or 'n/a'}")
-        cols[3].write(f"Section: {meta.get('section') or 'n/a'}")
-        if url:
-            st.markdown(f"[Open on PubMed]({url})")
-        st.write((hit.get("parent_text") or hit.get("text") or "")[:1200])
-
-
-def page_tables():
-    payload = st.session_state.get("last_result")
-    if not payload:
-        st.info("Run a query on Ask first.")
-        return
-    st.header("Extracted result tables")
-    rows = []
-    for hit in payload.get("hits") or []:
-        meta = hit.get("metadata") or {}
-        for stat in hit.get("extracted_stats") or []:
-            rows.append(
-                {
-                    "pmid": meta.get("pmid"),
-                    "title": meta.get("title"),
-                    "metric": stat.get("metric"),
-                    "value": stat.get("value"),
-                    "unit": stat.get("unit"),
-                    "arm": stat.get("arm"),
-                    "comparator": stat.get("comparator"),
-                    "table_id": stat.get("table_id"),
-                }
-            )
-    if not rows:
-        st.write("No extracted statistics on the retrieved parents.")
-        return
-    st.dataframe(pd.DataFrame(rows), use_container_width=True)
-
-
-def page_chunks():
-    payload = st.session_state.get("last_result")
-    if not payload:
-        st.info("Run a query on Ask first.")
-        return
-    st.header("Chunk inspector")
-    for i, hit in enumerate(payload.get("hits") or [], start=1):
-        meta = hit.get("metadata") or {}
-        with st.expander(f"Hit {i} parent={hit.get('parent_id')} score={hit.get('score', 0):.4f}"):
-            st.json(
-                {
-                    "chunk_id": hit.get("chunk_id"),
-                    "parent_id": hit.get("parent_id"),
-                    "source": hit.get("source"),
-                    "pmid": meta.get("pmid"),
-                    "section": meta.get("section"),
-                }
-            )
-            st.markdown("**Child / retrieved text**")
-            st.write(hit.get("text") or "")
-            st.markdown("**Parent text**")
-            st.write(hit.get("parent_text") or "")
-
-
-def page_eval(settings):
-    st.header("Evaluation")
-    if st.button("Run heuristic RAGAS-style benchmark"):
-        with st.spinner("Running benchmark..."):
-            report = run_benchmark(settings)
-            st.session_state["eval_report"] = report
-    report = st.session_state.get("eval_report")
-    path = settings.ragas_report_path
-    if report is None and path.exists():
-        report = json.loads(path.read_text(encoding="utf-8"))
-    if not report:
-        st.info("No report yet.")
-        return
-    metrics = report.get("metrics") or {}
-    cols = st.columns(len(metrics) or 1)
-    for col, (name, value) in zip(cols, metrics.items()):
-        col.metric(name, value)
-    st.dataframe(pd.DataFrame(report.get("rows") or []), use_container_width=True)
-
-
-def page_ingest(settings):
-    st.header("Ingest")
-    st.write("Default path loads the offline oncology demo corpus. Live NCBI requires NCBI_EMAIL.")
-    col1, col2, col3 = st.columns(3)
-    if col1.button("Load demo corpus and index"):
-        docs = run_ingestion(settings, live=False, index=True)
-        seed_demo_tables(settings)
-        st.success(f"Indexed {len(docs)} documents")
-        st.cache_resource.clear()
-    if col2.button("Generate 50+ synthetic QA"):
-        items = generate_synthetic_qa(settings, n=50)
-        st.success(f"Wrote {len(items)} QA pairs to {settings.qa_path}")
-    if col3.button("Live PubMed ingest", disabled=not settings.ncbi_email):
-        docs = run_ingestion(settings, live=True, index=True)
-        st.success(f"Live ingest wrote {len(docs)} documents")
-        st.cache_resource.clear()
-    docs = read_jsonl(settings.documents_path)
-    st.write(f"Documents on disk: {len(docs)}")
-    qa = load_qa(settings.qa_path)
-    st.write(f"Synthetic QA: {len(qa)}")
-    if docs:
-        st.dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "doc_id": d.doc_id,
-                        "pmid": d.pmid,
-                        "section": d.section,
-                        "title": d.title,
-                        "year": d.year,
-                    }
-                    for d in docs
-                ]
-            ),
-            use_container_width=True,
-        )
+def get_pipeline():
+    """Initialize and cache the RAGPipeline instance."""
+    pipeline = RAGPipeline()
+    pipeline.load_demo_corpus()
+    return pipeline
 
 
 def main():
-    settings = load_settings()
-    page = render_sidebar(settings)
-    documents, store_bundle = load_or_build_index(settings)
-    st.session_state.setdefault("doc_count", len(documents))
-    if page == "Ask":
-        page_ask(settings, store_bundle)
-    elif page == "Sources":
-        page_sources()
-    elif page == "Extracted tables":
-        page_tables()
-    elif page == "Chunk inspector":
-        page_chunks()
-    elif page == "Evaluation":
-        page_eval(settings)
-    else:
-        page_ingest(settings)
+    settings = get_settings()
+    pipeline = get_pipeline()
+
+    # Sidebar Navigation & System Status
+    st.sidebar.title("🧠 RAG Engine")
+    st.sidebar.caption("Domain-Agnostic Retrieval-Augmented Generation")
+
+    stats = pipeline.get_stats()
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"**Knowledge Base Stats:**")
+    st.sidebar.markdown(f"- 📄 Documents: `{stats['document_count']}`")
+    st.sidebar.markdown(f"- 🧩 Chunks: `{stats['chunk_count']}`")
+    st.sidebar.markdown(f"- ⚡ Vector Backend: `{'HashEmbeddings (Offline)' if settings.use_hash_embeddings else settings.embedding_model}`")
+    st.sidebar.markdown(f"- 🤖 LLM Mode: `{'OpenAI (' + settings.user_llm_model + ')' if settings.has_llm_key() else 'Extractive Fallback (Offline)'}`")
+    st.sidebar.markdown("---")
+
+    page = st.sidebar.radio(
+        "Navigation",
+        ["💬 Ask Question", "🔬 Pipeline Inspector", "📚 Knowledge Base"],
+    )
+
+    if page == "💬 Ask Question":
+        render_ask_page(pipeline, settings)
+    elif page == "🔬 Pipeline Inspector":
+        render_inspector_page(pipeline)
+    elif page == "📚 Knowledge Base":
+        render_knowledge_base_page(pipeline)
+
+
+def render_ask_page(pipeline, settings):
+    st.header("💬 Ask Questions Grounded in Knowledge")
+    st.write(
+        "Enter a question to retrieve relevant passages from the knowledge base and generate an answer."
+    )
+
+    # Sample query buttons for quick demonstration
+    st.markdown("**Try a sample question:**")
+    cols = st.columns(3)
+    sample_q = None
+    if cols[0].button("Quantum: Cooling temperature?"):
+        sample_q = "What temperature must superconducting qubits be cooled down to?"
+    if cols[1].button("JWST: Primary mirror materials?"):
+        sample_q = "What is the primary mirror of the James Webb Space Telescope made of?"
+    if cols[2].button("Energy: Long-duration storage?"):
+        sample_q = "What technologies are used for long-duration energy storage exceeding 8 hours?"
+
+    query = st.text_input(
+        "Your Question:",
+        value=sample_q if sample_q else "",
+        placeholder="e.g. How does quantum superposition enable qubits to solve complex problems?",
+    )
+
+    if st.button("Ask RAG Engine", type="primary") or query:
+        if not query.strip():
+            st.warning("Please enter a question.")
+            return
+
+        with st.spinner("Retrieving relevant context and generating answer..."):
+            result = pipeline.query(query)
+
+        st.subheader("💡 Answer")
+        st.markdown(result["answer"])
+
+        # Metadata badges
+        st.markdown("---")
+        m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+        m_col1.metric("⏱ Latency", f"{result['latency_ms']} ms")
+        m_col2.metric("🎯 Faithfulness", f"{result['evaluation']['faithfulness'] * 100:.1f}%")
+        m_col3.metric("❓ Relevancy", f"{result['evaluation']['answer_relevancy'] * 100:.1f}%")
+        m_col4.metric("📚 Sources Cited", len(result["sources"]))
+
+        if result["sources"]:
+            st.markdown(f"**Referenced Documents:** {', '.join([f'`{s}`' for s in result['sources']])}")
+
+        # Show retrieved passages in an expander
+        with st.expander("📖 View Retrieved Passages (Top Ranked Chunks)"):
+            for idx, item in enumerate(result["retrieved_chunks"], start=1):
+                chunk = item["chunk"]
+                st.markdown(f"**Passage {idx}** | Source: *{chunk.title}* | Hybrid Score: `{item['score']}`")
+                st.info(chunk.text)
+
+
+def render_inspector_page(pipeline):
+    st.header("🔬 RAG Pipeline Inspector")
+    st.write(
+        "See behind the scenes: watch how the query flows through **Vector Search**, **BM25 Keyword Search**, "
+        "and **Reciprocal Rank Fusion (RRF)** before reaching the LLM."
+    )
+
+    query = st.text_input(
+        "Test Query to Inspect:",
+        value="superconducting circuits cooling dilution refrigerator",
+    )
+
+    if query.strip():
+        result = pipeline.query(query)
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.subheader("1️⃣ Dense Vector Search (Top Hits)")
+            st.caption("Captures semantic similarity using vector embeddings.")
+            dense_hits = result["dense_results"]
+            if dense_hits:
+                for idx, h in enumerate(dense_hits[:5], start=1):
+                    chunk = h["chunk"]
+                    st.markdown(f"**Rank {idx}** (Cosine Sim: `{h['score']}`) - *{chunk.title}*")
+                    st.text(chunk.text[:200] + "...")
+            else:
+                st.info("No vector hits.")
+
+        with col2:
+            st.subheader("2️⃣ Sparse BM25 Search (Top Hits)")
+            st.caption("Captures exact lexical matches and keyword occurrences.")
+            bm25_hits = result["bm25_results"]
+            if bm25_hits:
+                for idx, h in enumerate(bm25_hits[:5], start=1):
+                    chunk = h["chunk"]
+                    st.markdown(f"**Rank {idx}** (BM25 Score: `{h['score']}`) - *{chunk.title}*")
+                    st.text(chunk.text[:200] + "...")
+            else:
+                st.info("No BM25 hits.")
+
+        st.subheader("3️⃣ Hybrid Reciprocal Rank Fusion (RRF) Merge")
+        st.caption("Combines dense and sparse rankings using `RRF = sum(weight / (60 + rank))`")
+
+        fused_items = result["retrieved_chunks"]
+        for idx, item in enumerate(fused_items, start=1):
+            chunk = item["chunk"]
+            d_rank = item.get("dense_rank", "N/A")
+            b_rank = item.get("bm25_rank", "N/A")
+            st.markdown(
+                f"**Final Rank {idx}** | Fused Score: `{item['score']}` | "
+                f"Vector Rank: `{d_rank}` | BM25 Rank: `{b_rank}` | Source: *{chunk.title}*"
+            )
+            st.success(chunk.text)
+
+
+def render_knowledge_base_page(pipeline):
+    st.header("📚 Knowledge Base Manager")
+    st.write("Add documents to your RAG system via plain text, paste, or PDF upload.")
+
+    tab1, tab2, tab3 = st.tabs(["📄 Existing Documents", "✍️ Add Text Document", "📎 Upload PDF"])
+
+    with tab1:
+        st.subheader("Indexed Documents")
+        if not pipeline.documents:
+            st.info("No documents currently indexed. Click 'Reload Demo Corpus' below to populate.")
+        else:
+            for idx, doc in enumerate(pipeline.documents, start=1):
+                with st.expander(f"{idx}. {doc.title} (ID: {doc.doc_id})"):
+                    st.caption(f"Source: {doc.source} | Words: {len(doc.text.split())}")
+                    st.text(doc.text[:500] + ("..." if len(doc.text) > 500 else ""))
+
+        if st.button("🔄 Reload Demo Corpus"):
+            docs = pipeline.load_demo_corpus()
+            st.success(f"Loaded and indexed {len(docs)} demo documents!")
+            st.rerun()
+
+    with tab2:
+        st.subheader("Paste Document Content")
+        new_title = st.text_input("Document Title", placeholder="e.g. Introduction to Renewable Energy")
+        new_text = st.text_area("Document Text", placeholder="Paste the text of the article or notes here...", height=200)
+
+        if st.button("Index Document", type="primary"):
+            if not new_text.strip():
+                st.warning("Please provide text content.")
+            else:
+                title = new_title.strip() or "Untitled Document"
+                doc = pipeline.add_document(text=new_text, title=title)
+                st.success(f"Successfully indexed document: '{doc.title}' into RAG knowledge base!")
+                st.rerun()
+
+    with tab3:
+        st.subheader("Upload PDF Document")
+        uploaded_file = st.file_uploader("Choose a PDF file", type=["pdf"])
+        if uploaded_file is not None:
+            if st.button("Process & Index PDF", type="primary"):
+                import tempfile
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                    tmp.write(uploaded_file.read())
+                    tmp_path = Path(tmp.name)
+
+                doc = pipeline.add_pdf(tmp_path)
+                st.success(f"Extracted and indexed PDF: '{doc.title}' ({len(doc.text.split())} words)!")
+                st.rerun()
 
 
 if __name__ == "__main__":

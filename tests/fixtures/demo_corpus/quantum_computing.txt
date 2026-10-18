@@ -1,0 +1,9 @@
+Title: Quantum Computing Fundamentals
+
+Quantum computing is a rapidly-emerging technology that harnesses the laws of quantum mechanics to solve problems too complex for classical computers. Classical computers encode information in binary bits that can either be 0 or 1. In contrast, quantum computers use quantum bits, or qubits.
+
+Due to the principle of superposition, qubits can exist in multidimensional states of both 0 and 1 simultaneously. Another fundamental quantum principle utilized is entanglement, where pairs or groups of qubits become interconnected such that the state of one instantly influences the state of another, regardless of physical separation.
+
+Key hardware architectures for quantum processors include superconducting circuits (used by IBM and Google), trapped-ion systems (used by IonQ and Quantinuum), and photonic quantum computers. Quantum computers require specialized environments to operate reliably; superconducting qubits typically must be cooled down to approximately 15 millikelvin (-273.135 degrees Celsius), which is colder than outer space, using dilution refrigerators.
+
+Promising applications for quantum computing include simulating molecular structures for drug discovery, optimizing logistics and financial portfolios, and breaking legacy cryptographic algorithms through Shor's algorithm. Fault-tolerant quantum computing with quantum error correction (QEC) remains a primary engineering milestone needed before broad commercial utility is achieved.
