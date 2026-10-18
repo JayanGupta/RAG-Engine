@@ -134,7 +134,7 @@ RAG-Engine/
 
 ### 1. Clone & Install Dependencies
 ```bash
-git clone https://github.com/YourUsername/RAG-Engine.git
+git clone https://github.com/JayanGupta/RAG-Engine.git
 cd RAG-Engine
 
 pip install -r requirements.txt
